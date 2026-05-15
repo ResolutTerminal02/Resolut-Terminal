@@ -1481,17 +1481,86 @@ function sig(r,p){const v=parseFloat(p);if(r<30)return'buy';if(r>70)return'sell'
 function pc(p){const v=parseFloat(p);return isNaN(v)||v===0?'neu':v>0?'up':'dn';}
 
 // TABLES
-function buildDSE(){
-  document.getElementById('dse-tb').innerHTML=DSE.map(d=>{
-    const r=Math.round(rsi(d.pct)),s=sig(r,d.pct),c=pc(d.pct);
-    return`<tr onclick="openDrawer('${d.s}','DSE')"><td>${d.s}</td><td>${d.n}</td><td>TZS ${d.p}</td><td class="${c}">${d.ch} (${d.pct}%)</td><td class="${c}">${d.ytd}%</td><td>${d.v}</td><td>${d.sec}</td><td>${d.pe}x</td><td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td><td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td></tr>`;
-  }).join('');
+async function buildDSE(){
+  const tb = document.getElementById('dse-tb');
+  tb.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--w5);padding:16px;font-size:9px">Loading live DSE prices from Mansa Markets...</td></tr>';
+  try {
+    // Fetch all DSE instruments and get prices in parallel
+    const instruments = await api('/api/instruments?market=DSE');
+    const equities = instruments.filter(i => i.kind === 'equity');
+    
+    // Fetch prices for up to 20 stocks (100 req/day limit on Mansa free tier)
+    const rows = await Promise.all(equities.slice(0,20).map(async inst => {
+      try {
+        const p = await api(`/api/price/DSE/${inst.symbol}`);
+        const pct = p.change_pct || 0;
+        const r = Math.round(rsi(pct)), s = sig(r, pct), c = pc(pct);
+        // Update DSE array for tape
+        const existing = DSE.find(d => d.s === inst.symbol);
+        if(existing) { existing.p = p.price.toLocaleString(); existing.pct = pct.toFixed(2); existing.ch = pct >= 0 ? '+' + (p.price * pct/100).toFixed(0) : (p.price * pct/100).toFixed(0); }
+        return `<tr onclick="openDrawer('${inst.symbol}','DSE')">
+          <td>${inst.symbol}</td>
+          <td>${inst.name}</td>
+          <td style="color:var(--w)">TZS ${p.price.toLocaleString()}</td>
+          <td class="${c}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+          <td>${p.source === 'stub' ? '<span style="color:var(--w5);font-size:8px">est.</span>' : '<span style="color:var(--green);font-size:8px">live</span>'}</td>
+          <td>${p.volume ? p.volume.toLocaleString() : '—'}</td>
+          <td>${inst.sector || '—'}</td>
+          <td>—</td>
+          <td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td>
+          <td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td>
+        </tr>`;
+      } catch(e) {
+        return `<tr><td>${inst.symbol}</td><td>${inst.name}</td><td colspan="8" style="color:var(--w5);font-size:8px">—</td></tr>`;
+      }
+    }));
+    tb.innerHTML = rows.join('');
+    buildTape();
+  } catch(e) {
+    // Fall back to static data
+    tb.innerHTML = DSE.map(d => {
+      const r=Math.round(rsi(d.pct)),s=sig(r,d.pct),c=pc(d.pct);
+      return`<tr onclick="openDrawer('${d.s}','DSE')"><td>${d.s}</td><td>${d.n}</td><td>TZS ${d.p}</td><td class="${c}">${d.ch} (${d.pct}%)</td><td colspan="2">—</td><td>${d.sec}</td><td>${d.pe}x</td><td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td><td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td></tr>`;
+    }).join('');
+  }
 }
-function buildNSE(){
-  document.getElementById('nse-tb').innerHTML=NSE.map(d=>{
-    const r=Math.round(rsi(d.pct)),s=sig(r,d.pct),c=pc(d.pct);
-    return`<tr onclick="openDrawer('${d.s}','NSE')"><td>${d.s}</td><td>${d.n}</td><td>KES ${d.p}</td><td class="${c}">${d.ch} (${d.pct}%)</td><td class="${c}">${d.ytd}%</td><td>${d.sec}</td><td>${d.pe}x</td><td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td><td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td></tr>`;
-  }).join('');
+
+async function buildNSE(){
+  const tb = document.getElementById('nse-tb');
+  tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--w5);padding:16px;font-size:9px">Loading live NSE prices from Mansa Markets...</td></tr>';
+  try {
+    const instruments = await api('/api/instruments?market=NSE');
+    const equities = instruments.filter(i => i.kind === 'equity');
+    const rows = await Promise.all(equities.slice(0,15).map(async inst => {
+      try {
+        const p = await api(`/api/price/NSE/${inst.symbol}`);
+        const pct = p.change_pct || 0;
+        const r = Math.round(rsi(pct)), s = sig(r, pct), c = pc(pct);
+        const existing = NSE.find(d => d.s === inst.symbol);
+        if(existing) { existing.p = p.price.toFixed(2); existing.pct = pct.toFixed(2); }
+        return `<tr onclick="openDrawer('${inst.symbol}','NSE')">
+          <td>${inst.symbol}</td>
+          <td>${inst.name}</td>
+          <td style="color:var(--w)">KES ${p.price.toLocaleString()}</td>
+          <td class="${c}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+          <td>${p.source === 'stub' ? '<span style="color:var(--w5);font-size:8px">est.</span>' : '<span style="color:var(--green);font-size:8px">live</span>'}</td>
+          <td>${inst.sector || '—'}</td>
+          <td>—</td>
+          <td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td>
+          <td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td>
+        </tr>`;
+      } catch(e) {
+        return `<tr><td>${inst.symbol}</td><td>${inst.name}</td><td colspan="7" style="color:var(--w5);font-size:8px">—</td></tr>`;
+      }
+    }));
+    tb.innerHTML = rows.join('');
+    buildTape();
+  } catch(e) {
+    tb.innerHTML = NSE.map(d => {
+      const r=Math.round(rsi(d.pct)),s=sig(r,d.pct),c=pc(d.pct);
+      return`<tr onclick="openDrawer('${d.s}','NSE')"><td>${d.s}</td><td>${d.n}</td><td>KES ${d.p}</td><td class="${c}">${d.ch} (${d.pct}%)</td><td colspan="2">—</td><td>${d.sec}</td><td>${d.pe}x</td><td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td><td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td></tr>`;
+    }).join('');
+  }
 }
 
 // HEATMAP
@@ -1522,49 +1591,70 @@ const AV_FALLBACK={
 };
 
 async function buildNYSE(){
-  const tb=document.getElementById('nyse-tb');
-  tb.innerHTML='<tr><td colspan="8" class="loading" style="text-align:center;padding:16px">Fetching live prices...</td></tr>';
-  let html='';
-  let gotLive=false;
-
-  // Try fetching just VOO first to test rate limit
-  const test=await fetchQ('VOO');
-  
-  const syms=['VOO','SPY','GLD','EEM'];
-  for(const sym of syms){
-    let q=null;
-    if(test||!gotLive){
-      q=sym==='VOO'?test:await fetchQ(sym);
-      if(q)gotLive=true;
-    }
-    // Use fallback if rate limited
-    if(!q) q=AV_FALLBACK[sym];
-    if(q){
-      MKT[sym]=q;
-      const c=parseFloat(q.pct)>=0?'up':'dn',r=Math.round(rsi(q.pct)),s=sig(r,q.pct);
-      const liveTag=gotLive?'':'<span style="font-size:7px;color:#6A5A30;margin-left:4px">est.</span>';
-      html+=`<tr onclick="openDrawer('${sym}','NYSE')"><td>${sym}${liveTag}</td><td>${NYSE_N[sym]||sym}</td><td>$${q.price}</td><td class="${c}">${parseFloat(q.pct)>=0?'+':''}$${q.change}</td><td class="${c}">${parseFloat(q.pct)>=0?'+':''}${q.pct}%</td><td>${q.vol}</td><td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td><td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td></tr>`;
-      ['voo','spy','gld'].forEach(k=>{if(sym===k.toUpperCase()){const el=document.getElementById('pos-'+k);if(el)el.textContent='$'+q.price;const dc=document.getElementById('dc-'+k);if(dc)dc.textContent='$'+q.price;}});
-      if(sym==='GLD'){const fg=document.getElementById('fx-gold');if(fg)fg.textContent='$'+q.price;}
-      if(gotLive&&sym!=='VOO') await new Promise(r=>setTimeout(r,1200));
-    }
+  const tb = document.getElementById('nyse-tb');
+  tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--w5);padding:16px;font-size:9px">Loading live NYSE prices from Finnhub...</td></tr>';
+  try {
+    const instruments = await api('/api/instruments?market=NYSE');
+    const equities = instruments.filter(i => i.kind === 'equity').slice(0,20);
+    const etfs = instruments.filter(i => i.kind === 'etf').slice(0,8);
+    const all = [...equities, ...etfs];
+    const rows = await Promise.all(all.map(async inst => {
+      try {
+        const p = await api(`/api/price/NYSE/${inst.symbol}`);
+        const pct = p.change_pct || 0;
+        const r = Math.round(rsi(pct)), s = sig(r, pct), c = pc(pct);
+        MKT[inst.symbol] = {sym: inst.symbol, price: p.price.toFixed(2), pct: pct.toFixed(2), change: (p.price * pct/100).toFixed(2), vol: p.volume ? p.volume.toLocaleString() : '—'};
+        const liveTag = p.source === 'stub' ? '<span style="color:var(--w5);font-size:7px">est.</span>' : '<span style="color:var(--green);font-size:7px">live</span>';
+        return `<tr onclick="openDrawer('${inst.symbol}','NYSE')">
+          <td>${inst.symbol} ${liveTag}</td>
+          <td>${inst.name}</td>
+          <td style="color:var(--w)">$${p.price.toFixed(2)}</td>
+          <td class="${c}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+          <td class="${c}">${pct >= 0 ? '+' : ''}$${Math.abs(p.price * pct/100).toFixed(2)}</td>
+          <td>${p.volume ? p.volume.toLocaleString() : '—'}</td>
+          <td class="${r<35?'dn':r>65?'up':'neu'}">${r}</td>
+          <td><span class="bdg bdg-${s}">${s.toUpperCase()}</span></td>
+        </tr>`;
+      } catch(e) {
+        return `<tr><td>${inst.symbol}</td><td>${inst.name}</td><td colspan="6" style="color:var(--w5);font-size:8px">price unavailable</td></tr>`;
+      }
+    }));
+    tb.innerHTML = rows.join('') || '<tr><td colspan="8" style="text-align:center;color:var(--w5)">No data</td></tr>';
+    buildTape();
+  } catch(e) {
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--w5);padding:16px;font-size:9px">Backend unreachable</td></tr>';
   }
-  tb.innerHTML=html||'<tr><td colspan="8" style="text-align:center;color:var(--w5);padding:16px;font-size:9px">Using estimated prices — live data refreshing</td></tr>';
-  buildTape();
 }
 
 // TAPE
+
 function buildTape(){
   const tape=document.getElementById('tape');
   let h='';
-  [...DSE.slice(0,7),...NSE.slice(0,5)].forEach(d=>{
-    const c=pc(d.pct);
-    h+=`<div class="tick" onclick="openDrawer('${d.s}','${DSE.includes(d)?'DSE':'NSE'}')"><span class="tsym">${d.s}</span><span class="tval">${d.p}</span><span class="tchg ${c}">${parseFloat(d.pct)>0?'+':''}${d.pct}%</span></div>`;
+  // DSE prices — use live data from MKT cache or fallback to DSE array
+  [...DSE.slice(0,8)].forEach(d=>{
+    const live = window._liveDSE && window._liveDSE[d.s];
+    const price = live ? live.price.toLocaleString() : d.p;
+    const pct = live ? live.pct.toFixed(2) : d.pct;
+    const c=pc(pct);
+    h+=`<div class="tick" onclick="openDrawer('${d.s}','DSE')"><span class="tsym">${d.s}</span><span class="tval">TZS ${price}</span><span class="tchg ${c}">${parseFloat(pct)>0?'+':''}${pct}%</span></div>`;
   });
+  // NSE prices
+  [...NSE.slice(0,5)].forEach(d=>{
+    const live = window._liveNSE && window._liveNSE[d.s];
+    const price = live ? live.price.toFixed(2) : d.p;
+    const pct = live ? live.pct.toFixed(2) : d.pct;
+    const c=pc(pct);
+    h+=`<div class="tick" onclick="openDrawer('${d.s}','NSE')"><span class="tsym">${d.s}</span><span class="tval">KES ${price}</span><span class="tchg ${c}">${parseFloat(pct)>0?'+':''}${pct}%</span></div>`;
+  });
+  // NYSE/ETF prices
   Object.values(MKT).forEach(q=>{
     const c=parseFloat(q.pct)>=0?'up':'dn';
     h+=`<div class="tick" onclick="openDrawer('${q.sym}','NYSE')"><span class="tsym">${q.sym}</span><span class="tval">$${q.price}</span><span class="tchg ${c}">${parseFloat(q.pct)>=0?'+':''}${q.pct}%</span></div>`;
   });
+  // FX rates
+  const tzs = window._liveFX && window._liveFX['USDTZS'];
+  if(tzs) h+=`<div class="tick"><span class="tsym">USD/TZS</span><span class="tval">${tzs.toLocaleString()}</span><span class="tchg neu">FX</span></div>`;
   tape.innerHTML=h||'<span class="loading">Loading...</span>';
 }
 
@@ -1871,6 +1961,10 @@ try{const st=localStorage.getItem('resolut_theme');if(st)setTheme(st);}catch(e){
 // FETCH ALL
 async function fetchAll(){
   buildDSE();buildNSE();buildTape();
+  // Fetch live FX rate for tape
+  api('/api/price/FOREX/USDTZS').then(p => { window._liveFX = {'USDTZS': p.price}; buildTape(); }).catch(()=>{});
+  // Auto-refresh prices every 5 minutes
+  setInterval(()=>{ buildDSE(); buildNSE(); buildNYSE(); }, 5*60*1000);
   await Promise.all([buildNYSE(),fetchFX()]);
   buildTape();
 }
